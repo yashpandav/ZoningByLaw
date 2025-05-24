@@ -1,5 +1,6 @@
 from openai import OpenAI
 import os
+from chunks_pdf import search_similar_texts, QdrantClient
 
 client = OpenAI(
     api_key=os.getenv("GOOGLE_API_KEY"),
@@ -30,6 +31,11 @@ Professionals use this platform to:
 - Identify if a development falls under specific area overlays or amendments
 - and more
 
+
+### Input:
+In input you will get user query and based on that query retrieved context from the documents.
+your task is to combine the context with the user query and answer the question.
+
 ### Operational Guidelines for the Assistant:
 
 1. Primary Knowledge Source:
@@ -37,7 +43,7 @@ Professionals use this platform to:
     - Do not fabricate or assume any information beyond what is provided.
 
 2. If the Information is Missing:
-    - Clearly state: “The document does not contain that information.”
+    - Clearly state: "The document does not contain that information."
 
 3. Reference Usage:
     - Explain in detail the section, article, or context you drew from.
@@ -59,7 +65,7 @@ Professionals use this platform to:
 
 7. Disambiguation:
     - If a user query is broad, under-specified, or lacks context, ask for clarification:
-        Example: “Could you specify the zone category or property type you are referring to?”
+        Example: "Could you specify the zone category or property type you are referring to?"
 
 8. User Alignment:
     - Tailor your response to architectural professionals. Assume a working knowledge of construction and urban development processes.
@@ -71,15 +77,51 @@ Professionals use this platform to:
 By following this protocol, your responses will assist users in confidently designing projects that conform to Toronto's zoning requirements.
 """
 
-response = client.chat.completions.create(
-    model="gemini-2.0-flash",
-    messages=[  
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": "Explain to me how AI works"
-        }
-    ]
-)
+def get_llm_response(user_query, context):
+    """Get response from LLM using the user query and retrieved context"""
+    formatted_query = f"""
+    {{
+        "user_query": "{user_query}"
+        "context": "{context}"
+    }}
+    """
+    
+    response = client.chat.completions.create(
+        model="gemini-2.0-flash",
+        messages=[  
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": formatted_query
+            }
+        ]
+    )
+    return response.choices[0].message.content
 
-print(response.choices[0].message.content)
+def process_query(user_query):
+    """Process a user query by retrieving context and getting LLM response"""
+    # Initialize Qdrant client
+    qdrant = QdrantClient(host="localhost", port=6333)
+    COLLECTION_NAME = "jina_embeddings_collection2"
+    JINA_API_KEY = os.getenv("JINA_API_KEY")
+    
+    # Search for relevant context
+    results = search_similar_texts(qdrant, COLLECTION_NAME, user_query, JINA_API_KEY)
+    
+    # Format the context from search results
+    context = ""
+    for i, res in enumerate(results.points, start=1):
+        context += f"Result #{i}\n"
+        context += f"Score: {res.score:.4f}\n"
+        context += f"Text: {res.payload.get('text', 'No text found')}\n"
+        context += "------\n"
+    
+    # Get LLM response
+    response = get_llm_response(user_query, context)
+    return response
+
+if __name__ == "__main__":
+    # Example usage
+    user_query = "Floor Area in Garden Suits"
+    response = process_query(user_query)
+    print(response)
