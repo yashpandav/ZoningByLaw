@@ -17,7 +17,7 @@ def load_and_split_pdf(pdf_path, chunk_size=800, chunk_overlap=200):
     text = splitter.split_documents(documents=documents)
     print(text)
     return text
- 
+
 def get_jina_embeddings(texts, jina_api_key, model="jina-embeddings-v3", task="text-matching"):
     url = 'https://api.jina.ai/v1/embeddings'
     headers = {
