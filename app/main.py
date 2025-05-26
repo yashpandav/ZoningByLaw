@@ -122,10 +122,15 @@ def process_query(user_query):
         # Format the context from search results
         context = ""
         for i, res in enumerate(results.points, start=1):
-            context += f"Result #{i}\n"
-            context += f"Score: {res.score:.4f}\n"
-            context += f"Text: {res.payload.get('text', 'No text found')}\n"
-            context += "------\n"
+            context += f"Result #{i}\\n"
+            context += f"Score: {res.score:.4f}\\n"
+            # Access the nested metadata
+            point_metadata = res.payload.get('metadata', {})
+            context += f"Heading: {point_metadata.get('heading', 'No heading found')}\\n"
+            context += f"Heading Number: {point_metadata.get('heading_number', '')}\\n"
+            context += f"Hierarchy: {point_metadata.get('hierarchy', 'No hierarchy found')}\\n"
+            context += f"Text: {res.payload.get('text', 'No text found')}\\n"
+            context += "------\\n"
         
         # Get LLM response
         response = get_llm_response(user_query, context)
