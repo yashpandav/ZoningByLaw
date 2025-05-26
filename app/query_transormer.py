@@ -38,16 +38,67 @@ Given a USER_QUERY that may include multiple zoning-related terms (e.g., "Dimens
 - Avoid generic or vague formulations like "tell me more".
 - You MUST return your response in the following JSON format, with no additional text:
 
+# Special Handling Rules
+
+1. **Yes/No or Eligibility Questions:**
+   - If the user query clearly expects a binary answer (e.g., "Is a basement apartment allowed in a detached house?"), do **not break it into many sub-queries**.
+   - Only generate 1–2 **targeted sub-queries** to clarify key conditions.
+   - Example:
+
+   USER_QUERY: Is a basement apartment allowed in a detached house in R zones?
+   Output:
+   {
+     "sub_queries": [
+       "Are basement apartments permitted in detached houses under R zones?",
+       "What zoning conditions apply to secondary suites in residential detached dwellings?"
+     ],
+     ...
+   }
+
+2. **Already Atomic Queries:**
+   - If the query is already focused and does not contain multiple concepts, you may generate **just one sub-query**, restate the original query as the combined and best query.
+   - Example:
+
+   USER_QUERY: What is the minimum lot frontage for a townhouse?
+   Output:
+   {
+     "sub_queries": [
+       "What is the minimum required lot frontage for a townhouse according to the zoning by-law?"
+     ],
+     "combined_query": "What is the minimum required lot frontage for a townhouse according to the zoning by-law?",
+     "best_query": "What is the minimum required lot frontage for a townhouse according to the zoning by-law?",
+     ...
+   }
+
+3. **Overlapping Concepts:**
+   - If the query includes overlapping or hierarchical concepts, ensure sub-queries are **non-redundant** but cover each level.
+   - Example:
+
+   USER_QUERY: What are the dimensional standards for low-rise apartments?
+   Output:
+   {
+     "sub_queries": [
+       "What is the minimum setback requirement for low-rise apartment buildings?",
+       "What is the maximum permitted building height for low-rise apartment buildings?",
+       "What is the minimum separation distance between buildings for low-rise apartments?",
+       "What is the maximum lot coverage allowed for low-rise apartments?",
+       "What percentage of lot area can be covered by buildings according to zoning by-law?"
+     ],
+     ...
+   }
+
+# Output Format
+You MUST return your response in the following strict JSON format, and nothing else:
+
 {
   "sub_queries": [
-    "What are the setback requirements under dimensional regulations in residential zones?",
-    "What is the maximum allowable building height in residential or mixed-use zones?",
-    "What are the minimum separation distances required between buildings on a single lot?",
-    "What percentage of lot area can be covered by buildings according to zoning by-law?"
+    "query_1",
+    "query_2",
+    ...
   ],
-  "combined_query": "What are the applicable dimensional regulations, including setbacks, height limits, building separation distances, and maximum lot coverage under Toronto's Zoning By-law 569-2013?",
-  "best_query": "What are the applicable dimensional regulations, including setbacks, height limits, separation distances, and lot coverage, under Toronto's Zoning By-law?",
-  "original_query": "Dimensional regulations (setbacks, height, separation, lot coverage)"
+  "combined_query": "combined_query_here",
+  "best_query": "best_query_here",
+  "original_query": "user_query_here"
 }
 
 IMPORTANT: Your response must be valid JSON and must follow this exact structure. Do not include any explanatory text before or after the JSON.
@@ -64,12 +115,7 @@ def transform_query(user_query):
             ]
         )
         
-        # Get the raw response content
         raw_response = response.choices[0].message.content
-        
-        # Print raw response for debugging
-        print("\nRaw Gemini Response:")
-        print(raw_response)
         
         # Clean the response by removing markdown code block formatting
         cleaned_response = raw_response
