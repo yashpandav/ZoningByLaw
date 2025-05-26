@@ -197,7 +197,7 @@ def process_query(user_query):
         
         # Combine all contexts
         combined_context = "\n".join(all_contexts)
-
+        
         print(f"ALL CONTEXT : {all_contexts}")
         print(f"Combined Context Length: {len(combined_context)} characters")
         
@@ -219,7 +219,7 @@ def process_query(user_query):
 
         response = get_llm_response(combined_all_queries, combined_context)
         return response
-
+        
     except Exception as e:
         error_message = f"An error occurred while processing your query: {str(e)}"
         print(error_message)
