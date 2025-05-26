@@ -122,6 +122,9 @@ def search_similar_texts(qdrant_client, collection_name, query, jina_api_key, to
         query=query_embedding,
         limit=top_k
     )
+
+    print(f"Result Of {query} : {results}")
+
     return results
 
 def initialize_database(pdf_path, collection_name="jina_embeddings_collection2"):

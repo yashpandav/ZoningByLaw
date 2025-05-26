@@ -1,0 +1,20 @@
+1. Is the property zoned for a garden suite?
+2. Does the lot meet minimum size requirements?
+3. What are the required setbacks and does the proposed location comply?
+4. Is the proposed garden suite within allowable height limits?
+5. Is the gross floor area within the allowable limits?
+6. Is parking required or permitted?
+7. Are there protected trees that impact buildable area?
+8. Can the suite include a basement or rooftop deck?
+9. Is there a laneway behind the property?
+10. Is the lot in a heritage or conservation district?
+
+Eligibility checks (property zoning, lot size, access)
+
+Dimensional regulations (setbacks, height, separation, lot coverage)
+
+Design constraints (basement, rooftop deck, green space)
+
+Parking and access rules
+
+Exceptions and edge cases (heritage status, corner lots, tree protection)

@@ -2,11 +2,12 @@ from openai import OpenAI
 import os
 from chunks_pdf import search_similar_texts, QdrantClient
 from query_transormer import transform_query
+from langsmith import wrappers
 
-client = OpenAI(
+client = wrappers.wrap_openai(OpenAI(
     api_key=os.getenv("GOOGLE_API_KEY"),
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-)
+))
 
 SYSTEM_PROMPT = """
 You are a highly intelligent, regulation-aware assistant designed to provide authoritative, legally-informed answers based on city planning documents — with a focus on Toronto's Zoning By-law system. You assist professionals such as architects, planners, engineers, and developers by answering questions strictly based on the content retrieved from domain-specific documents, including zoning by-laws, land-use maps, regulations, amendments, and city planning policies.
@@ -44,6 +45,9 @@ Your response should be structured as follows:
 
 4. References
    - List of relevant section numbers and regulations cited
+
+WORK_FLOW:
+Whenever user ask queries it is being converted into subqueries, combined query and best query my other llm. You will receive these queries along with the context retrieved from the Qdrant database. Your task is to provide a comprehensive response based on the context provided. You have to carefully look at all the queries and context provided to you and then provide a response that is comprehensive and covers all the aspects of the queries.
 
 Remember to:
 - Be precise and technical in your language
@@ -137,6 +141,7 @@ def process_query(user_query):
             results = search_similar_texts(qdrant, COLLECTION_NAME, query, JINA_API_KEY)
             context = format_search_results(results, query)
             all_contexts.append(context)
+            
         
         # Then process sub-queries for detailed information
         print("\nProcessing sub-queries for detailed information:")
@@ -148,13 +153,29 @@ def process_query(user_query):
         
         # Combine all contexts
         combined_context = "\n".join(all_contexts)
+
+        print(f"ALL CONTEXT : {all_contexts}")
+        print(f"Combined Context Length: {len(combined_context)} characters")
         
+        # Format the combined queries string with proper separation
+        combined_all_queries = f"""
+        Original User Query: {query_result['original_query']}
+
+        Sub Queries: 
+        {"\n".join([f"- {q}" for q in query_result["sub_queries"]])}
+
+        Best Query: {query_result['best_query']}
+
+        Combined Query: {query_result['combined_query']}
+        """
+
         # Get final LLM response using the combined query
         print("\nGenerating comprehensive response...")
-        print(f"Using combined query for final response: {query_result['combined_query']}")
-        response = get_llm_response(query_result['combined_query'], combined_context)
+        print(f"All Queries Combined: \n{combined_all_queries}")
+
+        response = get_llm_response(combined_all_queries, combined_context)
         return response
-        
+
     except Exception as e:
         error_message = f"An error occurred while processing your query: {str(e)}"
         print(error_message)
@@ -162,6 +183,6 @@ def process_query(user_query):
 
 if __name__ == "__main__":
     # Example usage
-    user_query = "Dimensional regulations (setbacks, height, separation, lot coverage)"
+    user_query = "Is parking required or permitted in Garden Suits?"
     response = process_query(user_query)
     print(response)
