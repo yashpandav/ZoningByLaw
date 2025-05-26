@@ -1,6 +1,6 @@
 from openai import OpenAI
 import os
-from chunks_pdf import search_similar_texts, QdrantClient
+from chunks_pdf import search_similar_texts, QdrantClient, initialize_database
 
 client = OpenAI(
     api_key=os.getenv("GOOGLE_API_KEY"),
@@ -105,23 +105,39 @@ def process_query(user_query):
     COLLECTION_NAME = "jina_embeddings_collection2"
     JINA_API_KEY = os.getenv("JINA_API_KEY")
     
-    # Search for relevant context
-    results = search_similar_texts(qdrant, COLLECTION_NAME, user_query, JINA_API_KEY)
-    
-    # Format the context from search results
-    context = ""
-    for i, res in enumerate(results.points, start=1):
-        context += f"Result #{i}\n"
-        context += f"Score: {res.score:.4f}\n"
-        context += f"Text: {res.payload.get('text', 'No text found')}\n"
-        context += "------\n"
-    
-    # Get LLM response
-    response = get_llm_response(user_query, context)
-    return response
+    try:
+        # Check if collection exists
+        try:
+            qdrant.get_collection(COLLECTION_NAME)
+        except Exception:
+            # If collection doesn't exist, initialize the database
+            print("Collection not found. Initializing database...")
+            PDF_PATH = "../GardenSuits.pdf" 
+            initialize_database(PDF_PATH, COLLECTION_NAME)
+            print("Database initialized successfully!")
+        
+        # Search for relevant context
+        results = search_similar_texts(qdrant, COLLECTION_NAME, user_query, JINA_API_KEY)
+        
+        # Format the context from search results
+        context = ""
+        for i, res in enumerate(results.points, start=1):
+            context += f"Result #{i}\n"
+            context += f"Score: {res.score:.4f}\n"
+            context += f"Text: {res.payload.get('text', 'No text found')}\n"
+            context += "------\n"
+        
+        # Get LLM response
+        response = get_llm_response(user_query, context)
+        return response
+        
+    except Exception as e:
+        error_message = f"An error occurred while processing your query: {str(e)}"
+        print(error_message)
+        return error_message
 
 if __name__ == "__main__":
     # Example usage
-    user_query = "Floor Area in Garden Suits"
+    user_query = "Dimensional regulations (setbacks, height, separation, lot coverage)"
     response = process_query(user_query)
     print(response)
