@@ -1,6 +1,7 @@
 from openai import OpenAI
 import os
-from chunks_pdf import search_similar_texts, QdrantClient, initialize_database
+from chunks_pdf import search_similar_texts, QdrantClient
+from query_transormer import transform_query
 
 client = OpenAI(
     api_key=os.getenv("GOOGLE_API_KEY"),
@@ -12,78 +13,66 @@ You are a highly intelligent, regulation-aware assistant designed to provide aut
 
 Your primary function is to simulate a legal planning advisor or municipal compliance officer, providing detailed, technically accurate, and regulation-compliant guidance. Your responses must be based entirely on the retrieved documents and must be verifiable, factual, and contextually precise.
 
-### Domain Context: Toronto Zoning By-law
+### Response Structure
+For each query type (best query, combined query, original query, and sub-queries), you will receive relevant context. You must:
+1. Analyze the context for each query type
+2. Identify the most relevant information from each context
+3. Synthesize a comprehensive response that:
+   - Addresses all aspects of the original query
+   - Provides specific regulations and requirements
+   - Includes relevant section numbers and references
+   - Organizes information in a clear, hierarchical structure
 
-The Toronto Zoning By-law website is the official digital platform maintained by the City of Toronto to consolidate and disseminate all zoning regulations under Zoning By-law 569-2013. It serves as the primary legal reference for:
-- Land use classification (e.g., residential, commercial, mixed-use, industrial)
-- Built form constraints such as height, massing, and density
-- Spatial requirements including setbacks, minimum lot sizes, coverage limits
-- Parking minimums and landscaping regulations
-- Transition rules, overlays, special provisions, and site-specific exceptions
-- and more
+### Response Format
+Your response should be structured as follows:
 
-This resource is indispensable for ensuring that architectural and construction plans are compliant with municipal zoning codes and do not require unnecessary rezoning or minor variances.
+1. Executive Summary
+   - Brief overview of the key regulations and requirements
 
-Professionals use this platform to:
-- Confirm allowable uses and development rights on a parcel of land
-- Determine if a proposal meets performance standards for building envelope
-- Align design documents with planning and zoning expectations to avoid delays
-- Identify if a development falls under specific area overlays or amendments
-- and more
+2. Detailed Regulations
+   - Organized by topic (e.g., setbacks, height, separation, coverage)
+   - Each topic should include:
+     * Specific requirements
+     * Applicable conditions
+     * Section references
+     * Any exceptions or special cases
 
+3. Additional Considerations
+   - Important notes or exceptions
+   - Related regulations that may affect the requirements
+   - Special provisions or overlays
 
-### Input:
-In input you will get user query and based on that query retrieved context from the documents.
-your task is to combine the context with the user query and answer the question.
+4. References
+   - List of relevant section numbers and regulations cited
 
-### Operational Guidelines for the Assistant:
-
-1. Primary Knowledge Source:
-    - Your answers must be based on the retrieved document excerpts (zoning PDFs, city bylaws, regulatory guidelines).
-    - Do not fabricate or assume any information beyond what is provided.
-
-2. If the Information is Missing:
-    - Clearly state: "The document does not contain that information."
-
-3. Reference Usage:
-    - Explain in detail the section, article, or context you drew from.
-    - Prioritize transparency and traceability of your answers.
-
-4. Answer Quality:
-    - Be accurate, objective, and neutral in tone.
-    - Do not use speculative, ambiguous, or informal language.
-    - Use terminology consistent with city planning, zoning law, and architectural compliance.
-
-5. Answer Structure:
-    - Use bullet points or numbered lists for clarity if the response involves multiple rules or parameters.
-    - Summarize multiple relevant rules if applicable; do not copy entire blocks of regulation unless specifically requested.
-
-6. Tone and Language:
-    - Maintain a formal, informative, and professional tone.
-    - Avoid redundancy or unnecessary verbosity.
-    - Be direct, but thorough — answer with clarity and completeness.
-
-7. Disambiguation:
-    - If a user query is broad, under-specified, or lacks context, ask for clarification:
-        Example: "Could you specify the zone category or property type you are referring to?"
-
-8. User Alignment:
-    - Tailor your response to architectural professionals. Assume a working knowledge of construction and urban development processes.
-
-### Assumptions:
-- You are integrated with a semantic search retriever that feeds you the most relevant paragraphs or clauses from up-to-date legal and zoning PDFs.
-- You may trust that retrieved content is current, correct, and legally reliable.
-
-By following this protocol, your responses will assist users in confidently designing projects that conform to Toronto's zoning requirements.
+Remember to:
+- Be precise and technical in your language
+- Include specific measurements and requirements
+- Reference the exact sections of the by-law
+- Highlight any exceptions or special cases
+- Maintain a professional and authoritative tone
 """
+
+def format_search_results(results, query):
+    """Format search results into a readable context string"""
+    context = f"\n=== Results for query: {query} ===\n"
+    for i, res in enumerate(results.points, start=1):
+        context += f"\nResult #{i}:\n"
+        context += f"Text: {res.payload.get('text', 'No text found')}\n"
+        context += "---\n"
+    return context
 
 def get_llm_response(user_query, context):
     """Get response from LLM using the user query and retrieved context"""
     formatted_query = f"""
-    {{
-        "user_query": "{user_query}"
-        "context": "{context}"
-    }}
+    Please provide a comprehensive response to the following query based on the provided context from Toronto's Zoning By-law:
+
+    QUERY: {user_query}
+
+    CONTEXT:
+    {context}
+
+    Please structure your response according to the format specified in the system prompt, ensuring all relevant regulations and requirements are clearly presented with their specific references.
     """
     
     response = client.chat.completions.create(
@@ -112,28 +101,58 @@ def process_query(user_query):
         except Exception:
             # If collection doesn't exist, initialize the database
             print("Collection not found. Initializing database...")
+            from chunks_pdf import initialize_database
             PDF_PATH = "../GardenSuits.pdf" 
             initialize_database(PDF_PATH, COLLECTION_NAME)
             print("Database initialized successfully!")
         
-        # Search for relevant context
-        results = search_similar_texts(qdrant, COLLECTION_NAME, user_query, JINA_API_KEY)
+        # Transform the query into sub-queries
+        print("\nTransforming query into sub-queries...")
+        query_result = transform_query(user_query)
         
-        # Format the context from search results
-        context = ""
-        for i, res in enumerate(results.points, start=1):
-            context += f"Result #{i}\\n"
-            context += f"Score: {res.score:.4f}\\n"
-            # Access the nested metadata
-            point_metadata = res.payload.get('metadata', {})
-            context += f"Heading: {point_metadata.get('heading', 'No heading found')}\\n"
-            context += f"Heading Number: {point_metadata.get('heading_number', '')}\\n"
-            context += f"Hierarchy: {point_metadata.get('hierarchy', 'No hierarchy found')}\\n"
-            context += f"Text: {res.payload.get('text', 'No text found')}\\n"
-            context += "------\\n"
+        if len(query_result["sub_queries"]) == 1 and query_result["sub_queries"][0] == user_query:
+            print("Warning: Query transformation failed, using original query")
+        else:
+            print(f"\nGenerated {len(query_result['sub_queries'])} sub-queries:")
+            for i, q in enumerate(query_result["sub_queries"], 1):
+                print(f"{i}. {q}")
+            print(f"\nCombined Query: {query_result['combined_query']}")
+            print(f"Best Query: {query_result['best_query']}")
+            print(f"Original Query: {query_result['original_query']}")
         
-        # Get LLM response
-        response = get_llm_response(user_query, context)
+        # Collect results from all queries
+        print("\nSearching for relevant information...")
+        all_contexts = []
+        
+        # Search with each query type in order of specificity
+        queries_to_process = [
+            ("Best Query", query_result['best_query']),
+            ("Combined Query", query_result['combined_query']),
+            ("Original Query", query_result['original_query'])
+        ]
+        
+        # Process main queries first
+        for query_type, query in queries_to_process:
+            print(f"\nProcessing {query_type}: {query}")
+            results = search_similar_texts(qdrant, COLLECTION_NAME, query, JINA_API_KEY)
+            context = format_search_results(results, query)
+            all_contexts.append(context)
+        
+        # Then process sub-queries for detailed information
+        print("\nProcessing sub-queries for detailed information:")
+        for sub_query in query_result["sub_queries"]:
+            print(f"\nProcessing sub-query: {sub_query}")
+            results = search_similar_texts(qdrant, COLLECTION_NAME, sub_query, JINA_API_KEY)
+            context = format_search_results(results, sub_query)
+            all_contexts.append(context)
+        
+        # Combine all contexts
+        combined_context = "\n".join(all_contexts)
+        
+        # Get final LLM response using the combined query
+        print("\nGenerating comprehensive response...")
+        print(f"Using combined query for final response: {query_result['combined_query']}")
+        response = get_llm_response(query_result['combined_query'], combined_context)
         return response
         
     except Exception as e:
