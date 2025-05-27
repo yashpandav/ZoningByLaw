@@ -1,7 +1,6 @@
 from openai import OpenAI
 import os
 from chunks_pdf import search_similar_texts, QdrantClient
-from query_transormer import transform_query
 from langsmith import wrappers
 
 client = wrappers.wrap_openai(OpenAI(
@@ -10,7 +9,14 @@ client = wrappers.wrap_openai(OpenAI(
 ))
 
 SYSTEM_PROMPT = """
-You are a knowledgeable and regulation-aware assistant that provides clear, professional, and legally accurate answers based on planning and zoning documents — especially focused on the Toronto Zoning By-law.
+You are a highly skilled planning and zoning assistant specialized in interpreting Toronto’s Zoning By-law. You assist professionals such as architects, engineers, urban planners, and developers by providing precise, legally compliant answers based solely on official zoning documents.
+
+These include:
+- Zoning By-law 569-2013
+- Zoning amendments and overlays
+- Land-use maps and municipal planning policies
+
+Your job is to interpret the **retrieved context** and produce a clear, reliable, and regulation-based answer to the user's question. Your answers must be practical, professional, and ready for use in a zoning application or review.
 
 You help users like architects, engineers, planners, and developers by giving reliable, regulation-based responses using the context retrieved from zoning documents such as:
 - City zoning by-laws
@@ -26,58 +32,43 @@ Your answers must be:
 
 ### TASK
 
-You will be given the following:
-- The original user query
-- A list of sub-queries (specific zoning concepts)
-- A combined query (a complete, detailed synthesis)
-- A best query (the central or most informative one)
-- Retrieved context from a Qdrant vector database
+You will receive:
+- A **user query**
+- A **set of document chunks** retrieved from a vector database (Qdrant)
 
-Your job is to:
-1. Understand the user's **original query**
-2. Use the **retrieved context** to answer the **original query**, guided by the **best query**
-3. Cover the necessary information in a concise and legally grounded manner
-4. Use professional planning terminology and city zoning vocabulary
-5. Provide specific zoning information such as:
-   - Required dimensions or measurements
-   - Applicable zoning categories or conditions
-   - Relevant section numbers or clause references
-   - Exceptions or special provisions
-
+You must:
+1. Analyze the user's question and intent
+2. Use the retrieved zoning content to construct a legally grounded, complete response
+3. Include precise zoning rules, standards, and exceptions — **only if present in the retrieved context**
+4. Provide the following where relevant:
+   - Dimensional standards (e.g., height, setbacks, lot coverage)
+   - Use permissions and zoning conditions
+   - Special provisions or site-specific exceptions
+   - Section or clause references
 
 ### STYLE & FORMAT INSTRUCTIONS
+Your answer must be:
+- Clear, professional, and tailored to the user's query
+- Structurally flexible: you may use paragraphs, bullet points, or headings
+- **Dynamic in tone**:
+  - Be direct and firm for yes/no eligibility or compliance queries
+  - Use numerical clarity for dimensional or spatial rules
+  - Rephrase the opening sentence to match the query — never use: _"Based on the provided context..."_
 
-- Do **not** start every response with phrases like **“Based on the provided context…”**. Instead:
-  - Rephrase your opening naturally to suit the query
-  - Use professional, topic-specific phrasing (e.g., “Under the current R zone standards…”, “Toronto’s zoning by-law requires…”, “For this property type…” etc)
-- Vary your tone slightly based on the query type:
-  - For eligibility or compliance checks, be direct and rule-focused
-  - For dimensional standards, emphasize numerical clarity and reference points
-- Structure responses clearly, but allow for flexibility. You may use:
-  - Paragraphs for narrative clarity
-  - Bullets or numbered lists for precision
-  - Headings if helpful, but avoid repeating the same section titles for every answer
-  - Must add Reference in the end.
-
-### WORKFLOW
-
-- Your primary job is to answer the **original user query**, using the **best query** only as a framing reference.
-- Do **not** answer every sub-query — use them for internal understanding only.
-- Do **not** repeat the same sentence structures or transition phrases in every response.
-- You must sound like a professional municipal planner, not an automated script.
-- If the user query is a yes/no eligibility question, give a direct and rule-based answer.
+#### Always end with:
+**References** — include section numbers, clauses, or by-law identifiers when stated in the context
 
 ### GUIDELINES
-
+- Use only the content retrieved; **do not guess or fabricate**
+- Reflect the exact terminology and rules from the zoning documents
+- If a regulation depends on conditions (e.g., setbacks by lot width), mention that clearly
+- If the answer is not found in the context, say:
+  > “The retrieved document does not contain this information.”
 - Be clear and direct, not verbose.
-- Use proper terminology (e.g., “maximum building height”, “minimum rear yard setback”).
-- Always reference applicable section numbers or policy references from the context.
-- Highlight any exceptions, conditions, or overlays that may affect the rule.
-
 
 ### GOAL
 
-Deliver a **context-sensitive, zoning-accurate answer** that sounds natural and reliable to professionals in planning and development. Your response should feel tailored — not templated. Your answer must be legally reliable and ready for use in a zoning application or development review.
+Produce a well-organized, legally trustworthy answer that aligns with Toronto's zoning framework. Your response must be actionable and appropriate for submission in design reviews, rezoning applications, or planning consultations.
 """
 def format_search_results(results, query):
     """Format search results into a readable context string"""
@@ -111,7 +102,7 @@ def get_llm_response(user_query, context):
     CONTEXT:
     {context}
 
-    Please structure your response according to the format specified in the system prompt, ensuring all relevant regulations and requirements are clearly presented with their specific references.Make sure you frame your answer based on <Best Query> and <User Query>.
+    Please structure your response according to the format specified in the system prompt, ensuring all relevant regulations and requirements are clearly presented with their specific references.
     """
     
     response = client.chat.completions.create(
@@ -145,70 +136,14 @@ def process_query(user_query):
             initialize_database(PDF_PATH, COLLECTION_NAME)
             print("Database initialized successfully!")
         
-        # Transform the query into sub-queries
-        print("\nTransforming query into sub-queries...")
-        query_result = transform_query(user_query)
-        
-        if len(query_result["sub_queries"]) == 1 and query_result["sub_queries"][0] == user_query:
-            print("Warning: Query transformation failed, using original query")
-        else:
-            print(f"\nGenerated {len(query_result['sub_queries'])} sub-queries:")
-            for i, q in enumerate(query_result["sub_queries"], 1):
-                print(f"{i}. {q}")
-            print(f"\nCombined Query: {query_result['combined_query']}")
-            print(f"Best Query: {query_result['best_query']}")
-            print(f"Original Query: {query_result['original_query']}")
-        
-        # Collect results from all queries
+        # Search for relevant information
         print("\nSearching for relevant information...")
-        all_contexts = []
+        results = search_similar_texts(qdrant, COLLECTION_NAME, user_query, JINA_API_KEY)
+        context = format_search_results(results, user_query)
         
-        # Search with each query type in order of specificity
-        queries_to_process = [
-            ("Best Query", query_result['best_query']),
-            ("Combined Query", query_result['combined_query']),
-            ("Original Query", query_result['original_query'])
-        ]
-        
-        # Process main queries first
-        for query_type, query in queries_to_process:
-            print(f"\nProcessing {query_type}: {query}")
-            results = search_similar_texts(qdrant, COLLECTION_NAME, query, JINA_API_KEY)
-            context = format_search_results(results, query)
-            all_contexts.append(context)
-            
-        
-        # Then process sub-queries for detailed information
-        print("\nProcessing sub-queries for detailed information:")
-        for sub_query in query_result["sub_queries"]:
-            print(f"\nProcessing sub-query: {sub_query}")
-            results = search_similar_texts(qdrant, COLLECTION_NAME, sub_query, JINA_API_KEY)
-            context = format_search_results(results, sub_query)
-            all_contexts.append(context)
-        
-        # Combine all contexts
-        combined_context = "\n".join(all_contexts)
-        
-        print(f"ALL CONTEXT : {all_contexts}")
-        print(f"Combined Context Length: {len(combined_context)} characters")
-        
-        # Format the combined queries string with proper separation
-        combined_all_queries = f"""
-        Original User Query: {query_result['original_query']}
-
-        Sub Queries: 
-        {"\n".join([f"- {q}" for q in query_result["sub_queries"]])}
-
-        Best Query: {query_result['best_query']}
-
-        Combined Query: {query_result['combined_query']}
-        """
-
-        # Get final LLM response using the combined query
+        # Get final LLM response
         print("\nGenerating comprehensive response...")
-        print(f"All Queries Combined: \n{combined_all_queries}")
-
-        response = get_llm_response(combined_all_queries, combined_context)
+        response = get_llm_response(user_query, context)
         return response
         
     except Exception as e:
