@@ -1,7 +1,8 @@
 import requests
 import json
-from qdrant_client import QdrantClient
 import os
+import re
+from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -17,6 +18,63 @@ def load_and_split_pdf(pdf_path, chunk_size=1000, chunk_overlap=200):
     )
     text = splitter.split_documents(documents=documents)
     return text
+
+def extract_heading_and_hierarchy(text):
+    """Extracts heading number, title, and level based on zoning format"""
+    cleaned_text = text.strip()
+    
+    patterns = [
+        r'^(150\.7(?:\.\d+)*)\s+(.+?)(?:\n|$)',
+        r'^(150\.7(?:\.\d+)*)\s+(.+)',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, cleaned_text, re.MULTILINE)
+        if match:
+            code = match.group(1)
+            title = match.group(2).strip()
+            title = re.split(r'\n', title)[0].strip()
+            level = code.count('.')
+            return code, title, level
+    
+    return None, None, None
+
+def build_hierarchical_structure(texts):
+    """Build a hierarchical structure from all texts first"""
+    hierarchy_map = {}
+    
+    for doc in texts:
+        content = doc.page_content
+        heading_code, heading_title, level = extract_heading_and_hierarchy(content)
+        
+        if heading_code and heading_title:
+            hierarchy_map[heading_code] = {
+                'title': heading_title,
+                'level': level,
+                'content': content
+            }
+    
+    return hierarchy_map
+
+def get_full_hierarchy_path(code, hierarchy_map):
+    """Get the full hierarchy path for a given code"""
+    if not code:
+        return ""
+    
+    path_parts = []
+    current_code = code
+    
+    while current_code:
+        if current_code in hierarchy_map:
+            path_parts.append(hierarchy_map[current_code]['title'])
+        
+        if '.' in current_code:
+            current_code = '.'.join(current_code.split('.')[:-1])
+        else:
+            break
+    
+    path_parts.reverse()
+    return " > ".join(path_parts)
 
 def get_jina_embeddings(texts, jina_api_key, model="jina-embeddings-v3", task="text-matching"):
     """Get embeddings from Jina AI API"""
@@ -48,17 +106,45 @@ def init_qdrant_collection(qdrant_client, collection_name, vector_size, distance
         )
 
 def upsert_embeddings_to_qdrant(qdrant_client, collection_name, embeddings, texts):
-    """Upsert embeddings and texts to Qdrant (no metadata)"""
+    """Upsert embeddings and text with metadata into Qdrant"""
+    hierarchy_map = build_hierarchical_structure(texts)
+    
     points = []
-    for idx, (embedding, text) in enumerate(zip(embeddings, texts)):
-        content = text.page_content if hasattr(text, "page_content") else text
+    current_hierarchy_stack = []
+    
+    for idx, (embedding, doc) in enumerate(zip(embeddings, texts)):
+        content = doc.page_content
+        heading_code, heading_title, level = extract_heading_and_hierarchy(content)
+        
+        full_hierarchy = ""
+        if heading_code:
+            full_hierarchy = get_full_hierarchy_path(heading_code, hierarchy_map)
+        else:
+            if current_hierarchy_stack:
+                full_hierarchy = " > ".join(current_hierarchy_stack)
+        
+        if heading_code and heading_title:
+            current_hierarchy_stack = current_hierarchy_stack[:level]
+            current_hierarchy_stack.append(heading_title)
+        
         points.append({
             "id": idx,
             "vector": embedding,
-            "payload": {"text": content}
+            "payload": {
+                "text": content,
+                "heading_code": heading_code or "",
+                "heading_title": heading_title or "",
+                "hierarchy": full_hierarchy,
+                "level": level if level is not None else 0,
+                "page": getattr(doc, 'metadata', {}).get('page', 0),
+                "source": getattr(doc, 'metadata', {}).get('source', ''),
+                "chunk_index": idx
+            }
         })
+
     qdrant_client.upsert(collection_name=collection_name, points=points)
     print(f"Upserted {len(points)} points to collection '{collection_name}'.")
+    return len(points)
 
 def search_similar_texts(qdrant_client, collection_name, query, jina_api_key, top_k=3):
     """Search for similar texts in Qdrant"""
@@ -67,10 +153,10 @@ def search_similar_texts(qdrant_client, collection_name, query, jina_api_key, to
     results = qdrant_client.query_points(
         collection_name=collection_name,
         query=query_embedding,
-        limit=top_k
+        limit=top_k,
+        with_payload=True
     )
 
-    print(f"Result Of {query} : {results}")
     return results
 
 def initialize_database(pdf_path, collection_name="jina_embeddings_collection2"):
@@ -83,18 +169,18 @@ def initialize_database(pdf_path, collection_name="jina_embeddings_collection2")
 
     print("Loading and splitting PDF...")
     texts = load_and_split_pdf(pdf_path)
+    print(f"Loaded {len(texts)} text chunks")
 
     print("Generating embeddings...")
     raw_texts = [doc.page_content for doc in texts]
     embeddings = get_jina_embeddings(raw_texts, JINA_API_KEY)
     vector_size = len(embeddings[0])
+    print(f"Generated embeddings with dimension: {vector_size}")
 
     init_qdrant_collection(qdrant, collection_name, vector_size)
 
     print("Uploading embeddings to Qdrant...")
     upsert_embeddings_to_qdrant(qdrant, collection_name, embeddings, texts)
+    
     print("Database initialization complete!")
-
-if __name__ == "__main__":
-    PDF_PATH = "../GardenSuits.pdf"
-    initialize_database(PDF_PATH)
+    return qdrant, collection_name

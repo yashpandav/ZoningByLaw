@@ -79,14 +79,26 @@ Your job is to:
 
 Deliver a **context-sensitive, zoning-accurate answer** that sounds natural and reliable to professionals in planning and development. Your response should feel tailored — not templated. Your answer must be legally reliable and ready for use in a zoning application or development review.
 """
-
 def format_search_results(results, query):
     """Format search results into a readable context string"""
     context = f"\n=== Results for query: {query} ===\n"
+    
     for i, res in enumerate(results.points, start=1):
-        context += f"\nResult #{i}:\n"
+        context += f"\nResult #{i} (Score: {res.score:.4f}):\n"
+        
+        # Add hierarchy information if available
+        if res.payload.get('hierarchy'):
+            context += f"Section: {res.payload.get('hierarchy')}\n"
+        
+        if res.payload.get('heading_code'):
+            context += f"Code: {res.payload.get('heading_code')}\n"
+            
+        if res.payload.get('heading_title'):
+            context += f"Title: {res.payload.get('heading_title')}\n"
+        
         context += f"Text: {res.payload.get('text', 'No text found')}\n"
         context += "---\n"
+    
     return context
 
 def get_llm_response(user_query, context):
@@ -99,7 +111,7 @@ def get_llm_response(user_query, context):
     CONTEXT:
     {context}
 
-    Please structure your response according to the format specified in the system prompt, ensuring all relevant regulations and requirements are clearly presented with their specific references.
+    Please structure your response according to the format specified in the system prompt, ensuring all relevant regulations and requirements are clearly presented with their specific references.Make sure you frame your answer based on <Best Query> and <User Query>.
     """
     
     response = client.chat.completions.create(
@@ -205,7 +217,13 @@ def process_query(user_query):
         return error_message
 
 if __name__ == "__main__":
-    # Example usage
     user_query = ""
-    response = process_query(user_query)
-    print(response)
+
+    while True:
+        user_query = input("> ")
+        if(user_query == "exit"): 
+            break
+        print(f"Processing query: {user_query}")
+        print("-" * 50)
+        response = process_query(user_query)
+        print(response)
