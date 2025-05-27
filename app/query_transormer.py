@@ -25,7 +25,7 @@ The purpose of this breakdown is to help a RAG system search zoning documents (l
 
 Given a USER_QUERY that may include multiple zoning-related terms (e.g., "Dimensional regulations (setbacks, height, separation, lot coverage)"), generate the following:
 
-1. A list of sub-queries, **one for each zoning concept** mentioned in the user query.
+1. A list of **no more than 3** sub-queries, **each directly based on a zoning concept** in the user query.
 2. A single **combined query** that synthesizes all the concepts together in one detailed question.
 3. A single **"best query"** chosen from the above that is most likely to yield high-quality retrieval results.
 4. The original user query.
@@ -33,10 +33,10 @@ Given a USER_QUERY that may include multiple zoning-related terms (e.g., "Dimens
 # Guidelines
 
 - Use **domain-specific language** from zoning/planning (e.g., dimensional regulations, performance standards).
-- Each sub-query must be **clear, self-contained, and semantically rich**.
-- Sub-queries must ask for definitions, limits, or applicable rules for that concept.
-- Avoid generic or vague formulations like "tell me more".
-- You MUST return your response in the following JSON format, with no additional text:
+- Each sub-query must be **clear, self-contained, and semantically rich**, but only if needed.
+- All sub-queries must be **semantically grounded in the original user query**. Do not introduce new concepts.
+- Never generate more than 3 sub-queries.
+- If the query is already atomic or needs no breakdown, do **not transform it** — just return one sub-query identical to the original intent.
 
 # Special Handling Rules
 
@@ -70,24 +70,12 @@ Given a USER_QUERY that may include multiple zoning-related terms (e.g., "Dimens
      ...
    }
 
-3. **Overlapping Concepts:**
-   - If the query includes overlapping or hierarchical concepts, ensure sub-queries are **non-redundant** but cover each level.
-   - Example:
-
-   USER_QUERY: What are the dimensional standards for low-rise apartments?
-   Output:
-   {
-     "sub_queries": [
-       "What is the minimum setback requirement for low-rise apartment buildings?",
-       "What is the maximum permitted building height for low-rise apartment buildings?",
-       "What is the minimum separation distance between buildings for low-rise apartments?",
-       "What is the maximum lot coverage allowed for low-rise apartments?",
-       "What percentage of lot area can be covered by buildings according to zoning by-law?"
-     ],
-     ...
-   }
+3. **Overlapping or Hierarchical Concepts:**
+   - If the query includes overlapping concepts, ensure sub-queries are **non-redundant**.
+   - Prefer the **3 most salient concepts** from the query. Do not exceed the 3-query limit.
 
 # Output Format
+
 You MUST return your response in the following strict JSON format, and nothing else:
 
 {
