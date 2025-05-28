@@ -6,6 +6,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+import google.generativeai as genai
+from one import generate_query_embedding
 
 def load_and_split_pdf(pdf_path, chunk_size=1000, chunk_overlap=200):
     """Load and split PDF into chunks"""
@@ -76,22 +78,24 @@ def get_full_hierarchy_path(code, hierarchy_map):
     path_parts.reverse()
     return " > ".join(path_parts)
 
-def get_jina_embeddings(texts, jina_api_key, model="jina-embeddings-v3", task="text-matching"):
-    """Get embeddings from Jina AI API"""
-    url = 'https://api.jina.ai/v1/embeddings'
-    headers = {
-        'Content-Type': 'application/json',
-        'Authorization': f'Bearer {jina_api_key}'
-    }
-    data = {
-        "model": model,
-        "task": task,
-        "input": texts
-    }
-    response = requests.post(url, headers=headers, data=json.dumps(data))
-    response.raise_for_status()
-    result = response.json()
-    return [item['embedding'] for item in result['data']]
+def get_embeddings(texts, api_key):
+    """Get embeddings from Google Generative AI"""
+    genai.configure(api_key=api_key)
+    print("Generating embeddings...")
+    embeddings = []
+    for text in texts:
+        try:
+            result = genai.embed_content(
+                model="models/text-embedding-004",
+                content=text,
+                task_type="retrieval_document"
+            )
+            embeddings.append(result['embedding'])
+        except Exception as e:
+            print(f"Error generating embedding for text: {e}")
+            embeddings.append([0.0] * 768)
+    
+    return embeddings
 
 def init_qdrant_collection(qdrant_client, collection_name, vector_size, distance_metric=Distance.COSINE):
     """Initialize Qdrant collection if it doesn't exist"""
@@ -133,7 +137,7 @@ def upsert_embeddings_to_qdrant(qdrant_client, collection_name, embeddings, text
             "payload": {
                 "text": content,
                 "heading_code": heading_code or "",
-                "heading_title": heading_title or "",
+                "title": heading_title or "",
                 "hierarchy": full_hierarchy,
                 "level": level if level is not None else 0,
                 "page": getattr(doc, 'metadata', {}).get('page', 0),
@@ -146,26 +150,32 @@ def upsert_embeddings_to_qdrant(qdrant_client, collection_name, embeddings, text
     print(f"Upserted {len(points)} points to collection '{collection_name}'.")
     return len(points)
 
-def search_similar_texts(qdrant_client, collection_name, query, jina_api_key, top_k=3):
+def search_similar_texts(qdrant_client, collection_name, query, api_key, top_k=3):
     """Search for similar texts in Qdrant"""
-    query_embedding = get_jina_embeddings([query], jina_api_key)[0]
+
+    print("seach....")
+    query_embeddings = generate_query_embedding(query)
+
+    print(query_embeddings)
 
     results = qdrant_client.query_points(
         collection_name=collection_name,
-        query=query_embedding,
+        query=query_embeddings,
         limit=top_k,
         with_payload=True
     )
 
     return results
 
-def initialize_database(pdf_path, collection_name="jina_embeddings_collection2"):
+def initialize_database(pdf_path, collection_name="embeddings_collection", api_key=None):
     """Initialize the database with PDF content"""
-    JINA_API_KEY = os.getenv("JINA_API_KEY")
-    if not JINA_API_KEY:
-        raise ValueError("JINA_API_KEY environment variable is not set")
+    if not api_key:
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError("API key must be provided or set in GOOGLE_API_KEY environment variable")
 
-    qdrant = QdrantClient(host="localhost", port=6333)
+    # Initialize Qdrant client
+    qdrant_client = QdrantClient(host="localhost", port=6333)
 
     print("Loading and splitting PDF...")
     texts = load_and_split_pdf(pdf_path)
@@ -173,14 +183,18 @@ def initialize_database(pdf_path, collection_name="jina_embeddings_collection2")
 
     print("Generating embeddings...")
     raw_texts = [doc.page_content for doc in texts]
-    embeddings = get_jina_embeddings(raw_texts, JINA_API_KEY)
-    vector_size = len(embeddings[0])
-    print(f"Generated embeddings with dimension: {vector_size}")
+    embeddings = get_embeddings(raw_texts, api_key)
 
-    init_qdrant_collection(qdrant, collection_name, vector_size)
+    if embeddings:
+        vector_size = len(embeddings[0])
+        print(f"Generated embeddings with dimension: {vector_size}")
+    else:
+        raise ValueError("Failed to generate embeddings")
+
+    init_qdrant_collection(qdrant_client, collection_name, vector_size)
 
     print("Uploading embeddings to Qdrant...")
-    upsert_embeddings_to_qdrant(qdrant, collection_name, embeddings, texts)
-    
+    upsert_embeddings_to_qdrant(qdrant_client, collection_name, embeddings, texts)
+
     print("Database initialization complete!")
-    return qdrant, collection_name
+    return qdrant_client, collection_name
