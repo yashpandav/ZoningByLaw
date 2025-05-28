@@ -156,6 +156,7 @@ def search_similar_texts(qdrant_client, collection_name, query, api_key, top_k=3
     print("seach....")
     query_embeddings = generate_query_embedding(query)
 
+    # query_embedding = query_embeddings[0]
     print(query_embeddings)
 
     results = qdrant_client.query_points(
