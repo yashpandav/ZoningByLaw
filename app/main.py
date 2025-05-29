@@ -132,7 +132,7 @@ def process_query(user_query):
             # If collection doesn't exist, initialize the database
             print("Collection not found. Initializing database...")
             from chunks_pdf import initialize_database
-            PDF_PATH = "../GardenSuits.pdf" 
+            PDF_PATH = "./Data/GardenSuits.pdf" 
             initialize_database(PDF_PATH, COLLECTION_NAME)
             print("Database initialized successfully!")
         

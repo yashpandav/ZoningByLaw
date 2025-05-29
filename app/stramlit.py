@@ -90,7 +90,7 @@ def process_query(user_query, client, qdrant):
             st.warning("Collection not found. Initializing database...")
             with st.spinner("Setting up database... This may take a few minutes."):
                 from chunks_pdf import initialize_database
-                PDF_PATH = "../GardenSuits.pdf" 
+                PDF_PATH = "./Data/GardenSuits.pdf" 
                 initialize_database(PDF_PATH, COLLECTION_NAME)
             st.success("Database initialized successfully!")
         
