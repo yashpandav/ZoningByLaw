@@ -9,7 +9,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import google.generativeai as genai
 from one import generate_query_embedding
 
-def load_and_split_pdf(pdf_path, chunk_size=1000, chunk_overlap=200):
+def load_and_split_pdf(pdf_path, chunk_size=800, chunk_overlap=200):
     """Load and split PDF into chunks"""
     loader = PyPDFLoader(pdf_path)
     documents = loader.load()
@@ -157,7 +157,6 @@ def search_similar_texts(qdrant_client, collection_name, query, api_key, top_k=3
     query_embeddings = generate_query_embedding(query)
 
     # query_embedding = query_embeddings[0]
-    print(query_embeddings)
 
     results = qdrant_client.query_points(
         collection_name=collection_name,
