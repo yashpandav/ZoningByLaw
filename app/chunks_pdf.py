@@ -167,7 +167,7 @@ def search_similar_texts(qdrant_client, collection_name, query, api_key, top_k=3
 
     return results
 
-def initialize_database(pdf_path, collection_name="embeddings_collection", api_key=None):
+def initialize_database(pdf_path, collection_name="embeddings_collection" , qdrant_client=None, api_key=None):
     """Initialize the database with PDF content"""
     if not api_key:
         api_key = os.getenv("GOOGLE_API_KEY")
@@ -175,8 +175,7 @@ def initialize_database(pdf_path, collection_name="embeddings_collection", api_k
             raise ValueError("API key must be provided or set in GOOGLE_API_KEY environment variable")
 
     # Initialize Qdrant client
-    qdrant_client = QdrantClient(host="localhost", port=6333)
-
+    # qdrant_client = QdrantClient(host="localhost", port=6333)
     print("Loading and splitting PDF...")
     texts = load_and_split_pdf(pdf_path)
     print(f"Loaded {len(texts)} text chunks")

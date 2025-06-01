@@ -4,6 +4,11 @@ import os
 from chunks_pdf import search_similar_texts, QdrantClient, initialize_database
 from langsmith import wrappers
 
+qdrant_client = QdrantClient(
+    url=os.getenv("QDRANT_URL"),
+    api_key=os.getenv("QDRANT_API_KEY"),
+)
+
 # Configure page settings
 st.set_page_config(
     page_title="Toronto Zoning Assistant",
@@ -129,24 +134,23 @@ def get_llm_response(user_query, context):
 def process_query(user_query):
     """Process a user query by retrieving context and getting LLM response"""
     # Initialize Qdrant client
-    qdrant = QdrantClient(host="localhost", port=6333)
     COLLECTION_NAME = "jina_embeddings_collection2"
     JINA_API_KEY = os.getenv("JINA_API_KEY")
     
     try:
         # Check if collection exists
         try:
-            qdrant.get_collection(COLLECTION_NAME)
+            qdrant_client.get_collection(COLLECTION_NAME)
         except Exception:
             # If collection doesn't exist, initialize the database
             st.warning("Collection not found. Initializing database...")
             PDF_PATH = "./Data/GardenSuits.pdf" 
-            initialize_database(PDF_PATH, COLLECTION_NAME)
+            initialize_database(PDF_PATH, COLLECTION_NAME, qdrant_client)
             st.success("Database initialized successfully!")
         
         # Search for relevant information
         with st.spinner("Searching for relevant information..."):
-            results = search_similar_texts(qdrant, COLLECTION_NAME, user_query, JINA_API_KEY)
+            results = search_similar_texts(qdrant_client, COLLECTION_NAME, user_query, JINA_API_KEY)
             context = format_search_results(results, user_query)
         
         # Get final LLM response
